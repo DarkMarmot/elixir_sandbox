@@ -1,14 +1,5 @@
 defmodule Sandbox do
 
-  # expose -- puts a pure function in the LUA state that can return values but not modify the state
-  # inherit -- puts a function in the LUA state that can mutate that LUA state directly
-  # set -- directly mutate the LUA state from Elixir
-  # get
-  # run -- runs code against a state to modify it
-  # eval-- runs code against a state to return a value
-
-  # whitelist a subset
-
   @doc """
   Creates a Lua state with sandbox features.
   """
@@ -18,8 +9,6 @@ defmodule Sandbox do
   end
 
   # todo add chunk and file caching as genserver/registry option
-
-  # mutate a state by running a string or compiled chunk or file against it
 
   @doc """
   Evaluates a Lua chunk in the context of the given state. The result is returned whilst the state is unmodified.

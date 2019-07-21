@@ -12,8 +12,9 @@ defmodule Sandbox.MixProject do
       source_url: "https://github.com/darkmarmot/elixir_sandbox",
       homepage_url: "https://github.com/darkmarmot/elixir_sandbox",
       docs: [
-        main: "Sandbox", # The main page in the docs
-#        logo: "path/to/logo.png",
+        # The main page in the docs
+        main: "Sandbox",
+        #        logo: "path/to/logo.png",
         extras: ["README.md"]
       ],
       author: "Scott Southworth"
@@ -31,7 +32,7 @@ defmodule Sandbox.MixProject do
   defp deps do
     [
       {:luerl, "~> 0.4.0"},
-      {:ex_doc, "~> 0.21", only: :dev, runtime: false},
+      {:ex_doc, "~> 0.21", only: :dev, runtime: false}
     ]
   end
 end

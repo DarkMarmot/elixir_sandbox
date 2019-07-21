@@ -1,5 +1,4 @@
 defmodule Sandbox do
-
   @doc """
   Creates a Lua state with sandbox features.
   """

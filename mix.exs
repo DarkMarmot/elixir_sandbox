@@ -1,23 +1,21 @@
 defmodule Sandbox.MixProject do
   use Mix.Project
 
+  @version "0.1.0"
   def project do
     [
       app: :sandbox,
-      version: "0.1.0",
+      version: @version,
       elixir: "~> 1.9",
       start_permanent: Mix.env() == :prod,
       deps: deps(),
-      name: "Sandbox",
+      description: description(),
+      name: "sandbox",
       source_url: "https://github.com/darkmarmot/elixir_sandbox",
       homepage_url: "https://github.com/darkmarmot/elixir_sandbox",
-      docs: [
-        # The main page in the docs
-        main: "Sandbox",
-        #        logo: "path/to/logo.png",
-        extras: ["README.md"]
-      ],
-      author: "Scott Southworth"
+      docs: docs(),
+      author: "Scott Southworth",
+      package: package()
     ]
   end
 
@@ -25,6 +23,33 @@ defmodule Sandbox.MixProject do
   def application do
     [
       extra_applications: [:logger]
+    ]
+  end
+
+  defp package() do
+    [
+      name: "sandbox",
+      maintainers: ["Scott Southworth"],
+      licenses: ["Apache 2.0"],
+      links: %{"GitHub" => "https://github.com/darkmarmot/elixir_sandbox"}
+    ]
+  end
+
+  defp description() do
+    """
+    Sandbox provides restricted, isolated scripting environments for Elixir through the use of Lua by wrapping
+    Robert Virding's Luerl library.
+    """
+  end
+
+  defp docs() do
+    [
+      main: "Sandbox",
+      name: "Sandbox",
+      source_ref: "v#{@version}",
+      canonical: "http://hexdocs.pm/sandbox",
+      source_url: "https://github.com/darkmarmot/elixir_sandbox",
+      extras: []
     ]
   end
 

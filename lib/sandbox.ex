@@ -1,7 +1,7 @@
 defmodule Sandbox do
   @moduledoc """
 
-  Sandbox helps to provide restricted, isolated scripting environments for Elixir through the use of embedded Lua.
+  Sandbox provides restricted, isolated scripting environments for Elixir through the use of embedded Lua.
 
   This project is powered by Robert Virding's amazing [Luerl](https://github.com/rvirding/luerl), an Erlang library that lets one execute Lua scripts on the BEAM.
   Luerl executes Lua code _without_ running a Lua VM as a separate application! Rather, the state of the VM is used as a
@@ -13,12 +13,12 @@ defmodule Sandbox do
 
   Conventions followed in this library:
 
-  - Functions beginning with `eval` return the result of Lua function.
+  - Functions beginning with `eval` return a Lua result.
   - Functions starting with `confer` return a new Lua VM state.
   - Functions preceded by `run` return a tuple of `{result, new_state}`
-  - Functions return ok-error tuples such as `{:ok, result}` or `{:error, reason}` unless followed by a bang.
-  - Elixir functions exposed to Lua should return a value indicated by the injecting function (e.g.,
-  `set_elixir_to_confer/3` should return a bare Lua VM state
+  - All functions return ok-error tuples such as `{:ok, result}` or `{:error, reason}` unless followed by a bang.
+  - Elixir functions exposed to Lua return a value indicated by the injecting function (e.g.,
+  `set_elixir_to_confer/3` should return a bare Lua VM state).
 
   """
 

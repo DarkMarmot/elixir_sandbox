@@ -16,4 +16,6 @@ end
 
 function talk(n)
     talk_count = talk_count + n
+    print(n)
+    return talk_count
 end

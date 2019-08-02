@@ -14,11 +14,11 @@ defmodule Sandbox do
   Conventions followed in this library:
 
   - Functions beginning with `eval` return a Lua result.
-  - Functions starting with `confer` return a new Lua VM state.
+  - Functions starting with `play` return a new Lua VM state.
   - Functions preceded by `run` return a tuple of `{result, new_state}`
   - All functions return ok-error tuples such as `{:ok, result}` or `{:error, reason}` unless followed by a bang.
-  - Elixir functions exposed to Lua return a value indicated by the injecting function (e.g.,
-  `set_elixir_to_confer/3` should return a bare Lua VM state).
+  - Elixir functions exposed to Lua should all take two arguments: a Lua state and a list of Lua arguments. They
+    should return a value corresponding to the `eval`, `play` or `run` responses.
 
   """
 
@@ -31,6 +31,9 @@ defmodule Sandbox do
   @type lua_code :: lua_chunk() | String.t()
   @type lua_result :: number() | String.t() | [tuple()]
   @type lua_path :: String.t() | [String.t()]
+  @type elixir_run_fun :: (lua_state(), [any()] -> {lua_result(), lua_state()})
+  @type elixir_eval_fun :: (lua_state(), [any()] -> lua_result())
+  @type elixir_play_fun :: (lua_state(), [any()] -> lua_state())
 
   @doc """
   Creates a Lua state with sandbox features.
@@ -62,6 +65,7 @@ defmodule Sandbox do
   def eval!(state, code, max_reductions \\ @unlimited_reductions) do
     case :luerl_sandbox.run(code, state, max_reductions) do
       {:error, {:reductions, _n}} -> raise("Lua Sandbox exceeded reduction limit!")
+      {:error, reason} -> raise("Lua Sandbox: #{inspect(reason)}")
       {[result], _new_state} -> result
     end
   end
@@ -91,8 +95,8 @@ defmodule Sandbox do
   end
 
   @doc """
-  Calls a function defined in the the Lua state and returns the result. The state itself is not modified.
-  Lua functions can be referenced by a string or list, i.e. `math.floor` or `["math", "floor"]`.
+  Calls a function defined in the the Lua state and returns only the result. The state itself is not modified.
+  Lua functions in the Lua state can be referenced by their `lua_path`, being a string or list such as `math.floor` or `["math", "floor"]`.
   """
 
   @spec eval_function!(lua_state(), lua_path(), pos_integer()) :: lua_result()
@@ -109,7 +113,7 @@ defmodule Sandbox do
   end
 
   @doc """
-  Create a compiled chunk of Lua code that can be transferred between Lua states.
+  Create a compiled chunk of Lua code that can be transferred between Lua states, returned in an ok-error tuple.
   """
   @spec chunk(lua_state(), lua_code()) :: {:ok, lua_chunk()} | {:error, any()}
   def chunk(state, code) do
@@ -118,6 +122,10 @@ defmodule Sandbox do
       {:error, reason} -> {:error, reason}
     end
   end
+
+  @doc """
+  Same as `chunk/2`, but will return the raw result or raise a `RuntimeError`.
+  """
 
   @spec chunk!(lua_state(), lua_code()) :: lua_chunk()
   def chunk!(state, code) do
@@ -129,7 +137,7 @@ defmodule Sandbox do
   Runs a Lua string or chunk against a Lua state and returns a new Lua state in an ok-error tuple.
   """
 
-  def confer(state, code, max_reductions \\ @unlimited_reductions) do
+  def play(state, code, max_reductions \\ @unlimited_reductions) do
     case :luerl_sandbox.run(code, state, max_reductions) do
       {:error, e} -> {:error, e}
       {_result, new_state} -> {:ok, new_state}
@@ -137,10 +145,10 @@ defmodule Sandbox do
   end
 
   @doc """
-  Same as `confer/3`, but will return the raw result or raise a `RuntimeError`.
+  Same as `play/3`, but will return the raw result or raise a `RuntimeError`.
   """
 
-  def confer!(state, code, max_reductions \\ @unlimited_reductions) do
+  def play!(state, code, max_reductions \\ @unlimited_reductions) do
     IO.inspect("run: #{inspect(code)} ")
 
     case :luerl_sandbox.run(code, state, max_reductions) do
@@ -153,32 +161,37 @@ defmodule Sandbox do
   Runs a Lua file in the context of a Lua state and returns a new Lua state.
   """
 
-  def confer_file!(state, file_path, max_reductions \\ @unlimited_reductions) do
+  def play_file!(state, file_path, max_reductions \\ @unlimited_reductions) do
     code = File.read!(file_path)
-    confer!(state, code, max_reductions)
+    play!(state, code, max_reductions)
   end
 
   @doc """
   Runs a Lua function defined in the given Lua state and returns a new Lua state.
   """
 
-  def confer_function!(state, path, args \\ [], max_reductions \\ @unlimited_reductions)
+  def play_function!(state, path, args \\ [], max_reductions \\ @unlimited_reductions)
 
-  def confer_function!(state, path, args, max_reductions) when is_list(path) do
-    confer_function!(state, Enum.join(path, "."), args_to_list(args), max_reductions)
+  def play_function!(state, path, args, max_reductions) when is_list(path) do
+    play_function!(state, Enum.join(path, "."), args_to_list(args), max_reductions)
   end
 
-  def confer_function!(state, path, args, max_reductions) when is_binary(path) do
+  def play_function!(state, path, args, max_reductions) when is_binary(path) do
     state
     |> set!("__sandbox_args__", args_to_list(args))
-    |> confer!("return " <> path <> "(unpack(__sandbox_args__))", max_reductions)
+    |> play!("return " <> path <> "(unpack(__sandbox_args__))", max_reductions)
   end
 
+  @doc """
+  Runs a Lua string or chunk against the given Lua state and returns the result and the new Lua state in an ok-error tuple.
+  """
+
   @spec run(lua_state(), lua_code(), pos_integer()) ::
-          {:ok, {lua_result(), lua_state()}} | {:error, any()}
+          {:ok, lua_state() | {lua_result(), lua_state()}} | {:error, any()}
   def run(state, code, max_reductions \\ @unlimited_reductions) do
     case :luerl_sandbox.run(code, state, max_reductions) do
       {:error, e} -> {:error, e}
+      {[], new_state} -> {:ok, {nil, new_state}}
       {[result], new_state} -> {:ok, {result, new_state}}
     end
   end
@@ -194,6 +207,11 @@ defmodule Sandbox do
     end
   end
 
+  @doc """
+  Runs a function defined in the the Lua state and returns the result and the new Lua state as `{result, state}`.
+  Lua functions in the Lua state can be referenced by their `lua_path`, a string or list such as `math.floor` or `["math", "floor"]`.
+  """
+
   @spec run_function!(lua_state(), lua_path(), pos_integer()) :: lua_result()
   def run_function!(state, path, args \\ [], max_reductions \\ @unlimited_reductions)
 
@@ -208,9 +226,9 @@ defmodule Sandbox do
   end
 
   @doc """
-  Sets a value in a Lua state and returns the modified state.
+  Sets a value in a Lua state and returns the modified state. If `force` is set to true, new tables will be created
+  automatically if they missing from the given `lua_path`.
   """
-  # add options, force: true to create missing tables?
 
   def set!(state, path, value, force \\ false)
 
@@ -244,7 +262,8 @@ defmodule Sandbox do
   Exposes an Elixir function for use within the Lua state. This function cannot modify the state of the Lua VM; it can
   only return a value.
   """
-
+  @spec set_elixir_to_eval!(lua_state(), lua_path(), elixir_eval_fun()) ::
+          lua_state()
   def set_elixir_to_eval!(state, name, fun) when is_function(fun) do
     value = lua_wrap_elixir_eval(fun)
     set!(state, name, value)
@@ -259,13 +278,15 @@ defmodule Sandbox do
 
   This function will return a new Lua state with access to the Elixir function at the given table path.
   """
-  @spec set_elixir_to_confer!(lua_state(), lua_path(), (lua_state(), [any()] -> lua_state())) ::
+  @spec set_elixir_to_play!(lua_state(), lua_path(), elixir_play_fun()) ::
           lua_state()
-  def set_elixir_to_confer!(state, path, fun) when is_function(fun) do
-    value = lua_wrap_elixir_confer(fun)
+  def set_elixir_to_play!(state, path, fun) when is_function(fun) do
+    value = lua_wrap_elixir_play(fun)
     set!(state, path, value)
   end
 
+  @spec set_elixir_to_run!(lua_state(), lua_path(), elixir_run_fun()) ::
+          lua_state()
   def set_elixir_to_run!(state, name, fun) when is_function(fun) do
     value = lua_wrap_elixir_run(fun)
     set!(state, name, value)
@@ -276,25 +297,24 @@ defmodule Sandbox do
   # lua state is unchanged, result returned
   defp lua_wrap_elixir_eval(fun) do
     fn args, state ->
-      result = apply(fun, args)
+      result = fun.(state, args)
       {[result], state}
     end
   end
 
   defp lua_wrap_elixir_run(fun) do
     fn args, state ->
-      IO.inspect("run args #{inspect(args)}")
-      {result, new_state} = apply(fun, [state | args])
+#      IO.inspect("run args #{inspect(args)}")
+                                            {result, new_state} = fun.(state, args)
+#      {result, new_state} = apply(fun, [state | args])
       {[result], new_state}
     end
   end
 
   # lua state is changed
-  defp lua_wrap_elixir_confer(fun) do
+  defp lua_wrap_elixir_play(fun) do
     fn args, state ->
-      IO.inspect("confer args #{inspect(args)}")
-      new_state = apply(fun, [state | args])
-      #      new_state = fun.(state, args)
+      new_state = fun.(state, args)
       {[], new_state}
     end
   end

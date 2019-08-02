@@ -8,11 +8,10 @@ defmodule SandboxTest do
     |> Sandbox.set!("feeling", "poo")
     |> Sandbox.set!("hunger", 7)
     |> Sandbox.set_elixir_to_run!("move", &SandboxTest.move/2)
-    |> Sandbox.set_elixir_to_eval!("feels", fn p -> to_string(p) <> " feels" end)
+    |> Sandbox.set_elixir_to_eval!("feels", fn _state, [p | _] -> to_string(p) <> " feels" end)
   end
 
-  def move(state, d) do
-    IO.inspect("move args #{inspect(d)}")
+  def move(state, [d | _rest]) do
     x = state |> Sandbox.get!("x")
     result = x + d
     new_state = state |> Sandbox.set!("x", result)
@@ -75,10 +74,20 @@ defmodule SandboxTest do
     assert output == "some_value"
   end
 
+  test "can get value at path with get!" do
+    output =
+      Sandbox.init()
+      |> Sandbox.set!("some_table", [])
+      |> Sandbox.set!("some_table.some_variable", "some_value")
+      |> Sandbox.get!(["some_table", "some_variable"])
+
+    assert output == "some_value"
+  end
+
   test "can call function at path" do
     output =
       Sandbox.init()
-      |> Sandbox.confer_file!("test/lua/bunny.lua")
+      |> Sandbox.play_file!("test/lua/animal.lua")
       |> Sandbox.eval_function!(["speak"], ["bunny"])
 
     assert output == "silence"
@@ -87,7 +96,7 @@ defmodule SandboxTest do
   test "can call function at path as string" do
     output =
       Sandbox.init()
-      |> Sandbox.confer_file!("test/lua/bunny.lua")
+      |> Sandbox.play_file!("test/lua/animal.lua")
       |> Sandbox.eval_function!("speak", ["cow"], 0)
 
     assert output == "moo"
@@ -96,7 +105,7 @@ defmodule SandboxTest do
   test "can call function at path with single arg wrapped as array" do
     output =
       Sandbox.init()
-      |> Sandbox.confer_file!("test/lua/bunny.lua")
+      |> Sandbox.play_file!("test/lua/animal.lua")
       |> Sandbox.eval_function!("speak", "dog", 100_000)
 
     assert output == "woof"
@@ -129,7 +138,7 @@ defmodule SandboxTest do
 
     output =
       state
-      |> Sandbox.set_elixir_to_eval!("puppy", fn p -> to_string(p) <> " is cute" end)
+      |> Sandbox.set_elixir_to_eval!("puppy", fn _state, p -> to_string(p) <> " is cute" end)
       |> Sandbox.eval_function!("puppy", "dog", 10000)
 
     assert output == "dog is cute"
@@ -140,7 +149,7 @@ defmodule SandboxTest do
 
     long_function = fn ->
       state
-      |> Sandbox.set_elixir_to_eval!("puppy", fn p ->
+      |> Sandbox.set_elixir_to_eval!("puppy", fn _state, p ->
         Enum.map(1..10000, fn _ -> to_string(p) <> " is cute" end)
         |> List.last()
       end)
@@ -150,38 +159,98 @@ defmodule SandboxTest do
     assert_raise(RuntimeError, "Lua Sandbox exceeded reduction limit!", long_function)
   end
 
-  test "can run a Lua function that updates the Lua state" do
+  test "can play a Lua function that updates the Lua state" do
     state = Sandbox.init()
 
     output =
       state
-      |> Sandbox.confer_file!("test/lua/bunny.lua")
-      |> Sandbox.confer_function!("talk", 4, 10000)
-      |> Sandbox.get!("talk_count")
+      |> Sandbox.play_file!("test/lua/animal.lua")
+      |> Sandbox.play_function!(["talk"], 4, 10000)
+      |> Sandbox.get!("counter")
 
     assert output == 4
   end
 
-  test "can confer functionality to state through Elixir" do
+  test "can play a Lua function without arguments that updates the Lua state" do
     state = Sandbox.init()
 
     output =
       state
-      |> Sandbox.set_elixir_to_confer!("inherit_mobility", &SandboxTest.mobility/2)
+      |> Sandbox.play_file!("test/lua/animal.lua")
+      |> Sandbox.play_function!("sleep")
+      |> Sandbox.get!("sleeping")
+
+    assert output == true
+  end
+
+  test "can run Lua to update the Lua state with no return value" do
+    state = Sandbox.init()
+
+    {:ok, {result, new_state}} =
+      state
+      |> Sandbox.play_file!("test/lua/animal.lua")
+      |> Sandbox.run("sleeping = true")
+    output = new_state |> Sandbox.get!("sleeping")
+
+    assert output == true
+  end
+
+  test "can run a Lua function that updates the Lua state" do
+    state = Sandbox.init()
+
+    {output, new_state} =
+      state
+      |> Sandbox.play_file!("test/lua/animal.lua")
+      |> Sandbox.run_function!("talk", 4, 10000)
+
+    assert output == 4
+  end
+
+  test "can chunk a Lua function and then use it" do
+    state = Sandbox.init()
+    code = "function growl(n)\nreturn n + 2\nend"
+    chunk = Sandbox.chunk!(state, code)
+    output =
+      state
+      |> Sandbox.play!(chunk)
+      |> Sandbox.eval_function!("growl", 7)
+
+    assert output == 9
+  end
+
+  test "can play functionality to state through Elixir" do
+    state = Sandbox.init()
+
+    output =
+      state
+      |> Sandbox.set_elixir_to_play!("inherit_mobility", &SandboxTest.mobility/2)
       |> Sandbox.eval_file!("test/lua/mobility.lua")
 
     assert output == "happy feels"
   end
 
-  #  test "can run functionality to state through Elixir" do
-  #    state = Sandbox.init()
-  #    output =
-  #      state
-  #      |> Sandbox.set_elixir_to_run!("inherit_mobility", &SandboxTest.mobility/2)
-  #      |> Sandbox.eval_file!("test/lua/mobility.lua")
-  #
-  #    assert output == "happy feels"
-  #  end
+  test "can play functionality to state through Elixir with ok-error tuple" do
+    state = Sandbox.init()
+
+    {:ok, output} =
+      state
+      |> Sandbox.set_elixir_to_play!("inherit_mobility", &SandboxTest.mobility/2)
+      |> Sandbox.eval_file("test/lua/mobility.lua")
+
+    assert output == "happy feels"
+  end
+
+  test "can play functionality to state through Elixir with ok-error tuple and hit reduction limit" do
+    state = Sandbox.init()
+
+    output =
+      state
+      |> Sandbox.set_elixir_to_play!("inherit_mobility", &SandboxTest.mobility/2)
+#      |> Sandbox.eval_function!("waste_cycles", [1000])
+      |> Sandbox.eval_file("test/lua/mobility.lua", 1000)
+
+    assert {:error, {:reductions, _}} = output
+  end
 
   test "can get value" do
     output =
@@ -192,22 +261,13 @@ defmodule SandboxTest do
     assert output == "some_value"
   end
 
-  #
-  #  test "can get value at path" do
-  #    output =
-  #      Sandbox.init()
-  #      |> Sandbox.set!("some_table", [])
-  #      |> Sandbox.set!(["some_table", "some_variable"], "some_value")
-  #      |> Sandbox.eval!("return some_table.some_variable")
-  #    assert output == "some_value"
-  #  end
+  test "can get value from unsafe init" do
+    output =
+      Sandbox.unsafe_init()
+      |> Sandbox.set!("some_variable", "some_value")
+      |> Sandbox.get!("some_variable")
 
-  #
-  #  test "bunny can hop" do
-  #    output =
-  #    Sandbox.init()
-  #    |> Sandbox.file_run!("test/lua/bunny.lua")
-  #    |> Sandbox.eval!("return move()")
-  #    assert output == "hop"
-  #  end
+    assert output == "some_value"
+  end
+
 end

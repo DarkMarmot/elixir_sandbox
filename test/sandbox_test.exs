@@ -2,13 +2,13 @@ defmodule SandboxTest do
   use ExUnit.Case
   doctest Sandbox
 
-  def mobility(state, args) do
+  def mobility(state, _args) do
     state
     |> Sandbox.set!("x", 3)
     |> Sandbox.set!("feeling", "poo")
     |> Sandbox.set!("hunger", 7)
-    |> Sandbox.set_elixir_to_run!("move", &SandboxTest.move/2)
-    |> Sandbox.set_elixir_to_eval!("feels", fn _state, [p | _] -> to_string(p) <> " feels" end)
+    |> Sandbox.let_elixir_run!("move", &SandboxTest.move/2)
+    |> Sandbox.let_elixir_eval!("feels", fn _state, [p | _] -> to_string(p) <> " feels" end)
   end
 
   def move(state, [d | _rest]) do
@@ -138,7 +138,7 @@ defmodule SandboxTest do
 
     output =
       state
-      |> Sandbox.set_elixir_to_eval!("puppy", fn _state, p -> to_string(p) <> " is cute" end)
+      |> Sandbox.let_elixir_eval!("puppy", fn _state, p -> to_string(p) <> " is cute" end)
       |> Sandbox.eval_function!("puppy", "dog", 10000)
 
     assert output == "dog is cute"
@@ -149,14 +149,14 @@ defmodule SandboxTest do
 
     long_function = fn ->
       state
-      |> Sandbox.set_elixir_to_eval!("puppy", fn _state, p ->
+      |> Sandbox.let_elixir_eval!("puppy", fn _state, p ->
         Enum.map(1..10000, fn _ -> to_string(p) <> " is cute" end)
         |> List.last()
       end)
       |> Sandbox.eval_function!("puppy", "dog", 2000)
     end
 
-    assert_raise(RuntimeError, "Lua Sandbox exceeded reduction limit!", long_function)
+    assert_raise(RuntimeError, "Lua Sandbox Error: exceeded reduction limit!", long_function)
   end
 
   test "can play a Lua function that updates the Lua state" do
@@ -186,10 +186,11 @@ defmodule SandboxTest do
   test "can run Lua to update the Lua state with no return value" do
     state = Sandbox.init()
 
-    {:ok, {result, new_state}} =
+    {:ok, {_result, new_state}} =
       state
       |> Sandbox.play_file!("test/lua/animal.lua")
       |> Sandbox.run("sleeping = true")
+
     output = new_state |> Sandbox.get!("sleeping")
 
     assert output == true
@@ -198,7 +199,7 @@ defmodule SandboxTest do
   test "can run a Lua function that updates the Lua state" do
     state = Sandbox.init()
 
-    {output, new_state} =
+    {output, _new_state} =
       state
       |> Sandbox.play_file!("test/lua/animal.lua")
       |> Sandbox.run_function!("talk", 4, 10000)
@@ -210,6 +211,7 @@ defmodule SandboxTest do
     state = Sandbox.init()
     code = "function growl(n)\nreturn n + 2\nend"
     chunk = Sandbox.chunk!(state, code)
+
     output =
       state
       |> Sandbox.play!(chunk)
@@ -223,7 +225,7 @@ defmodule SandboxTest do
 
     output =
       state
-      |> Sandbox.set_elixir_to_play!("inherit_mobility", &SandboxTest.mobility/2)
+      |> Sandbox.let_elixir_play!("inherit_mobility", &SandboxTest.mobility/2)
       |> Sandbox.eval_file!("test/lua/mobility.lua")
 
     assert output == "happy feels"
@@ -234,7 +236,7 @@ defmodule SandboxTest do
 
     {:ok, output} =
       state
-      |> Sandbox.set_elixir_to_play!("inherit_mobility", &SandboxTest.mobility/2)
+      |> Sandbox.let_elixir_play!("inherit_mobility", &SandboxTest.mobility/2)
       |> Sandbox.eval_file("test/lua/mobility.lua")
 
     assert output == "happy feels"
@@ -245,8 +247,8 @@ defmodule SandboxTest do
 
     output =
       state
-      |> Sandbox.set_elixir_to_play!("inherit_mobility", &SandboxTest.mobility/2)
-#      |> Sandbox.eval_function!("waste_cycles", [1000])
+      |> Sandbox.let_elixir_play!("inherit_mobility", &SandboxTest.mobility/2)
+      #      |> Sandbox.eval_function!("waste_cycles", [1000])
       |> Sandbox.eval_file("test/lua/mobility.lua", 1000)
 
     assert {:error, {:reductions, _}} = output
@@ -269,5 +271,4 @@ defmodule SandboxTest do
 
     assert output == "some_value"
   end
-
 end

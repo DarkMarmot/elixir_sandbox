@@ -1,9 +1,13 @@
 defmodule Sandbox do
   @moduledoc """
 
+  #### --- Warning ---
+  #### This library is under heavy development and will have breaking changes until the 1.0.0 release.
+
   Sandbox provides restricted, isolated scripting environments for Elixir through the use of embedded Lua.
 
   This project is powered by Robert Virding's amazing [Luerl](https://github.com/rvirding/luerl), an Erlang library that lets one execute Lua scripts on the BEAM.
+
   Luerl executes Lua code _without_ running a Lua VM as a separate application! Rather, the state of the VM is used as a
   data structure that can be externally manipulated and processed.
 
@@ -13,44 +17,83 @@ defmodule Sandbox do
 
   Conventions followed in this library:
 
-  - Functions beginning with `eval` return a Lua result.
-  - Functions starting with `play` return a new Lua VM state.
+  - Functions beginning with `eval` return a result from Lua.
+  - Functions starting with `play` return a new Lua state.
   - Functions preceded by `run` return a tuple of `{result, new_state}`
-  - All functions return ok-error tuples such as `{:ok, result}` or `{:error, reason}` unless followed by a bang.
-  - Elixir functions exposed to Lua should all take two arguments: a Lua state and a list of Lua arguments. They
+  - All functions return ok-error tuples such as `{:ok, value}` or `{:error, reason}` unless followed by a bang.
+  - Elixir functions exposed to Lua take two arguments: a Lua state and a list of Lua arguments. They
     should return a value corresponding to the `eval`, `play` or `run` responses.
+  - The `max_reductions` argument defaults to `0`, corresponding to unlimited reductions.
 
   """
-
   @unlimited_reductions 0
 
+  @typedoc """
+  Compiled Lua code that can be transferred between Lua states.
+  """
   @type lua_chunk :: {:lua_func, any(), any(), any(), any(), any()}
+  @typedoc """
+  The representation of an entire Lua virtual machine and its current state.
+  """
   @type lua_state ::
           {:luerl, any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(),
            any(), any(), any()}
+  @typedoc """
+  Lua code as either a raw string or compile chunk.
+  """
   @type lua_code :: lua_chunk() | String.t()
-  @type lua_result :: number() | String.t() | [tuple()]
+  @typedoc """
+  Lua values represented as Elixir data structures.
+  """
+  @type lua_value :: number() | String.t() | [tuple()] | nil
+  @typedoc """
+  A dot-delimited name or list of names representing a table path in Lua such as `math.floor` or `["math", "floor"]`.
+  """
   @type lua_path :: String.t() | [String.t()]
-  @type elixir_run_fun :: (lua_state(), [any()] -> {lua_result(), lua_state()})
-  @type elixir_eval_fun :: (lua_state(), [any()] -> lua_result())
-  @type elixir_play_fun :: (lua_state(), [any()] -> lua_state())
+  @typedoc """
+  An Elixir function that can be invoked through Lua. It takes a Lua state and a list of Lua arguments and returns
+  a tuple containing a result and a new Lua state.
+  """
+  @type elixir_run_fun :: (lua_state(), [lua_value()] -> {any(), lua_state()})
+  @typedoc """
+  An Elixir function that can be invoked through Lua. It takes a Lua state and a list of Lua arguments and returns
+  a result. The Lua state acts as a context but is not modified.
+  """
+  @type elixir_eval_fun :: (lua_state(), [lua_value()] -> any())
+  @typedoc """
+  An Elixir function that can be invoked through Lua. It takes a Lua state and a list of Lua arguments and returns
+  a new Lua state. The result of this function is not exposed to Lua.
+  """
+  @type elixir_play_fun :: (lua_state(), [lua_value()] -> lua_state())
 
   @doc """
-  Creates a Lua state with sandbox features.
+  Creates a Lua state with "dangerous" core library features such as file IO and networking removed.
   """
   def init() do
     :luerl_sandbox.init()
   end
 
+  @doc """
+  Creates a Lua state with access to Lua's standard library. The `max_reductions` feature of `Sandbox` is still
+  available, but "dangerous" core library features such as file IO and networking are still available.
+  """
   def unsafe_init() do
     :luerl.init()
   end
 
-  @doc """
+  @doc ~S"""
   Evaluates a Lua string or chunk against the given Lua state and returns the result in an ok-error tuple. The state itself is not modified.
-  """
 
-  @spec eval(lua_state(), lua_code(), pos_integer()) :: {:ok, lua_result()} | {:error, any()}
+  ## Examples
+
+      iex> Sandbox.init() |> Sandbox.eval("return 3 + 4")
+      {:ok, 7.0}
+
+      iex> Sandbox.init() |> Sandbox.eval("return math.floor(9.9)")
+      {:ok, 9.0}
+
+  """
+  @spec eval(lua_state(), lua_code(), non_neg_integer()) :: {:ok, lua_value()} | {:error, any()}
   def eval(state, code, max_reductions \\ @unlimited_reductions) do
     case :luerl_sandbox.run(code, state, max_reductions) do
       {:error, e} -> {:error, e}
@@ -58,15 +101,25 @@ defmodule Sandbox do
     end
   end
 
-  @doc """
+  @doc ~S"""
   Same as `eval/3`, but will return the raw result or raise a `RuntimeError`.
+
+  ## Examples
+
+      iex> Sandbox.init() |> Sandbox.eval!("return 3 + 4")
+      7.0
+
+      iex> Sandbox.init() |> Sandbox.eval!("return math.floor(9.9)")
+      9.0
+
   """
-  @spec eval!(lua_state(), lua_code(), pos_integer()) :: lua_result()
+  @spec eval!(lua_state(), lua_code(), non_neg_integer()) :: lua_value()
   def eval!(state, code, max_reductions \\ @unlimited_reductions) do
     case :luerl_sandbox.run(code, state, max_reductions) do
-      {:error, {:reductions, _n}} -> raise("Lua Sandbox exceeded reduction limit!")
-      {:error, reason} -> raise("Lua Sandbox: #{inspect(reason)}")
+      {:error, {:reductions, _n}} -> raise("Lua Sandbox Error: exceeded reduction limit!")
+      {:error, reason} -> raise("Lua Sandbox Error: #{inspect(reason)}")
       {[result], _new_state} -> result
+      {[], _new_state} -> nil
     end
   end
 
@@ -74,7 +127,8 @@ defmodule Sandbox do
   Evaluates a Lua file against the given Lua state and returns the result in an ok-error tuple. The state itself is not modified.
   """
 
-  @spec eval_file(lua_state(), String.t(), pos_integer()) :: {:ok, lua_result()} | {:error, any()}
+  @spec eval_file(lua_state(), String.t(), non_neg_integer()) ::
+          {:ok, lua_value()} | {:error, any()}
   def eval_file(state, file_path, max_reductions \\ @unlimited_reductions) do
     with {:ok, code} <- File.read(file_path),
          {:ok, result} <- eval(state, code, max_reductions) do
@@ -88,7 +142,7 @@ defmodule Sandbox do
   Same as `eval_file/3`, but will return the raw result or raise a `RuntimeError`.
   """
 
-  @spec eval_file!(lua_state(), String.t(), pos_integer()) :: lua_result()
+  @spec eval_file!(lua_state(), String.t(), non_neg_integer()) :: lua_value()
   def eval_file!(state, file_path, max_reductions \\ @unlimited_reductions) do
     code = File.read!(file_path)
     eval!(state, code, max_reductions)
@@ -99,7 +153,7 @@ defmodule Sandbox do
   Lua functions in the Lua state can be referenced by their `lua_path`, being a string or list such as `math.floor` or `["math", "floor"]`.
   """
 
-  @spec eval_function!(lua_state(), lua_path(), pos_integer()) :: lua_result()
+  @spec eval_function!(lua_state(), lua_path(), non_neg_integer()) :: lua_value()
   def eval_function!(state, path, args \\ [], max_reductions \\ @unlimited_reductions)
 
   def eval_function!(state, path, args, max_reductions) when is_list(path) do
@@ -118,8 +172,12 @@ defmodule Sandbox do
   @spec chunk(lua_state(), lua_code()) :: {:ok, lua_chunk()} | {:error, any()}
   def chunk(state, code) do
     case :luerl.load(code, state) do
-      {:ok, result, _state} -> {:ok, result}
-      {:error, reason} -> {:error, reason}
+      {:ok, result, _state} ->
+        {:ok, result}
+
+      {:error, e1, e2} ->
+        {:error, {e1, e2}}
+        #      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -136,7 +194,7 @@ defmodule Sandbox do
   @doc """
   Runs a Lua string or chunk against a Lua state and returns a new Lua state in an ok-error tuple.
   """
-
+  @spec play(lua_state(), lua_code(), non_neg_integer()) :: {:ok, lua_state()} | {:error, any()}
   def play(state, code, max_reductions \\ @unlimited_reductions) do
     case :luerl_sandbox.run(code, state, max_reductions) do
       {:error, e} -> {:error, e}
@@ -147,10 +205,8 @@ defmodule Sandbox do
   @doc """
   Same as `play/3`, but will return the raw result or raise a `RuntimeError`.
   """
-
+  @spec play!(lua_state(), lua_code(), non_neg_integer()) :: lua_state()
   def play!(state, code, max_reductions \\ @unlimited_reductions) do
-    IO.inspect("run: #{inspect(code)} ")
-
     case :luerl_sandbox.run(code, state, max_reductions) do
       {:error, {:reductions, _n}} -> raise("Lua Sandbox exceeded reduction limit!")
       {_result, new_state} -> new_state
@@ -160,8 +216,9 @@ defmodule Sandbox do
   @doc """
   Runs a Lua file in the context of a Lua state and returns a new Lua state.
   """
-
-  def play_file!(state, file_path, max_reductions \\ @unlimited_reductions) do
+  @spec play_file!(lua_state(), String.t(), non_neg_integer()) :: lua_state()
+  def play_file!(state, file_path, max_reductions \\ @unlimited_reductions)
+      when is_binary(file_path) and is_integer(max_reductions) do
     code = File.read!(file_path)
     play!(state, code, max_reductions)
   end
@@ -169,7 +226,7 @@ defmodule Sandbox do
   @doc """
   Runs a Lua function defined in the given Lua state and returns a new Lua state.
   """
-
+  @spec play_function!(lua_state(), lua_path(), non_neg_integer()) :: lua_state()
   def play_function!(state, path, args \\ [], max_reductions \\ @unlimited_reductions)
 
   def play_function!(state, path, args, max_reductions) when is_list(path) do
@@ -186,8 +243,8 @@ defmodule Sandbox do
   Runs a Lua string or chunk against the given Lua state and returns the result and the new Lua state in an ok-error tuple.
   """
 
-  @spec run(lua_state(), lua_code(), pos_integer()) ::
-          {:ok, lua_state() | {lua_result(), lua_state()}} | {:error, any()}
+  @spec run(lua_state(), lua_code(), non_neg_integer()) ::
+          {:ok, lua_state() | {lua_value(), lua_state()}} | {:error, any()}
   def run(state, code, max_reductions \\ @unlimited_reductions) do
     case :luerl_sandbox.run(code, state, max_reductions) do
       {:error, e} -> {:error, e}
@@ -199,7 +256,7 @@ defmodule Sandbox do
   @doc """
   Same as `run/3`, but will return the raw `{result, state}` or raise a `RuntimeError`.
   """
-  @spec run!(lua_state(), lua_code(), pos_integer()) :: lua_result()
+  @spec run!(lua_state(), lua_code(), non_neg_integer()) :: {lua_value(), lua_state()}
   def run!(state, code, max_reductions \\ @unlimited_reductions) do
     case :luerl_sandbox.run(code, state, max_reductions) do
       {:error, {:reductions, _n}} -> raise("Lua Sandbox exceeded reduction limit!")
@@ -212,7 +269,7 @@ defmodule Sandbox do
   Lua functions in the Lua state can be referenced by their `lua_path`, a string or list such as `math.floor` or `["math", "floor"]`.
   """
 
-  @spec run_function!(lua_state(), lua_path(), pos_integer()) :: lua_result()
+  @spec run_function!(lua_state(), lua_path(), non_neg_integer()) :: {lua_value(), lua_state()}
   def run_function!(state, path, args \\ [], max_reductions \\ @unlimited_reductions)
 
   def run_function!(state, path, args, max_reductions) when is_list(path) do
@@ -229,7 +286,7 @@ defmodule Sandbox do
   Sets a value in a Lua state and returns the modified state. If `force` is set to true, new tables will be created
   automatically if they missing from the given `lua_path`.
   """
-
+  @spec set!(lua_state(), lua_path(), any(), boolean()) :: lua_state()
   def set!(state, path, value, force \\ false)
 
   def set!(state, path, value, force) when is_binary(path) do
@@ -247,7 +304,7 @@ defmodule Sandbox do
   @doc """
   Gets a value from a Lua state.
   """
-
+  @spec get!(lua_state(), lua_path()) :: lua_value()
   def get!(state, path) when is_list(path) do
     code = "return " <> Enum.join(path, ".")
     eval!(state, code)
@@ -259,35 +316,42 @@ defmodule Sandbox do
   end
 
   @doc """
-  Exposes an Elixir function for use within the Lua state. This function cannot modify the state of the Lua VM; it can
-  only return a value.
+  Returns a Lua state modified to include an Elixir function, `elixir_eval_fun()`, at the given `lua_path()`.
+
+  The `elixir_eval_fun()` takes two arguments, a Lua state and a list of calling arguments from Lua.
+  Its return value is passed along to Lua. It will not mutate the Lua state against which it executes.
   """
-  @spec set_elixir_to_eval!(lua_state(), lua_path(), elixir_eval_fun()) ::
+  @spec let_elixir_eval!(lua_state(), lua_path(), elixir_eval_fun()) ::
           lua_state()
-  def set_elixir_to_eval!(state, name, fun) when is_function(fun) do
+  def let_elixir_eval!(state, name, fun) when is_function(fun) do
     value = lua_wrap_elixir_eval(fun)
     set!(state, name, value)
   end
 
   @doc """
-  Exposes an Elixir function that can modify the Lua state of the script calling it.
-  This is primarily for letting Lua scripts use something like inheritance, dynamically adding external functionality and settings.
+  Returns a Lua state modified to include an Elixir function, `elixir_play_fun()`, at the given `lua_path()`.
 
-  The given Elixir function will receive two arguments, a Lua state and a list containing any arguments from Lua. It should return
-  a new Lua VM state.
+  The `elixir_play_fun()` takes two arguments, a Lua state and a list of calling arguments from Lua.
+  It should return a new Lua state.
 
-  This function will return a new Lua state with access to the Elixir function at the given table path.
+  This can be used to let Lua scripts use something like controlled inheritance, dynamically adding external functionality and settings.
   """
-  @spec set_elixir_to_play!(lua_state(), lua_path(), elixir_play_fun()) ::
+  @spec let_elixir_play!(lua_state(), lua_path(), elixir_play_fun()) ::
           lua_state()
-  def set_elixir_to_play!(state, path, fun) when is_function(fun) do
+  def let_elixir_play!(state, path, fun) when is_function(fun) do
     value = lua_wrap_elixir_play(fun)
     set!(state, path, value)
   end
 
-  @spec set_elixir_to_run!(lua_state(), lua_path(), elixir_run_fun()) ::
+  @doc """
+  Returns a Lua state modified to include an Elixir function, `elixir_run_fun()`, at the given `lua_path()`.
+
+  The `elixir_run_fun()` takes two arguments, a Lua state and a list of calling arguments from Lua.
+  It should return a tuple holding the result intended for the calling Lua function alongside a new Lua state.
+  """
+  @spec let_elixir_run!(lua_state(), lua_path(), elixir_run_fun()) ::
           lua_state()
-  def set_elixir_to_run!(state, name, fun) when is_function(fun) do
+  def let_elixir_run!(state, name, fun) when is_function(fun) do
     value = lua_wrap_elixir_run(fun)
     set!(state, name, value)
   end
@@ -302,11 +366,10 @@ defmodule Sandbox do
     end
   end
 
+  # lua result and state returned
   defp lua_wrap_elixir_run(fun) do
     fn args, state ->
-#      IO.inspect("run args #{inspect(args)}")
-                                            {result, new_state} = fun.(state, args)
-#      {result, new_state} = apply(fun, [state | args])
+      {result, new_state} = fun.(state, args)
       {[result], new_state}
     end
   end

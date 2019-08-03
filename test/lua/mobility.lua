@@ -15,10 +15,9 @@
 --        get_position = get_position
 --    }
 --end
-print "running mob"
+
 m = inherit_mobility("meow dog")
 r = move(7)
-print(r)
 f = feels("happy")
 
 return f

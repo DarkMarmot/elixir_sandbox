@@ -19,9 +19,6 @@ function waste_cycles(n)
     return t
 end
 
-
-
-
 function talk(n)
     counter = counter + n
     return counter

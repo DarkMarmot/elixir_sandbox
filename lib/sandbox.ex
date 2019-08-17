@@ -306,13 +306,15 @@ defmodule Sandbox do
   """
   @spec get!(lua_state(), lua_path()) :: lua_value()
   def get!(state, path) when is_list(path) do
-    code = "return " <> Enum.join(path, ".")
-    eval!(state, code)
+#    code = "return " <> Enum.join(path, ".")
+#    {[result | _], _}
+    {result, _s} = :luerl.get_table(path, state)
+#    eval!(state, code)
+    result
   end
 
   def get!(state, path) when is_binary(path) do
-    code = "return " <> path
-    eval!(state, code)
+    get!(state, String.split(path, "."))
   end
 
   @doc """

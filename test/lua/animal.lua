@@ -11,6 +11,10 @@ function speak(animal)
     return animal_voices[animal]
 end
 
+function voices()
+    return animal_voices
+end
+
 function waste_cycles(n)
     local t = 0
     for i=1,n do

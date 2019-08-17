@@ -102,6 +102,15 @@ defmodule SandboxTest do
     assert output == "moo"
   end
 
+  test "can call function returning an object" do
+    output =
+      Sandbox.init()
+      |> Sandbox.play_file!("test/lua/animal.lua")
+      |> Sandbox.eval_function!("voices", [], 0)
+
+    assert output == "moo"
+  end
+
   test "can call function at path with single arg wrapped as array" do
     output =
       Sandbox.init()

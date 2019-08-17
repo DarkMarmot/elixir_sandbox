@@ -108,7 +108,12 @@ defmodule SandboxTest do
       |> Sandbox.play_file!("test/lua/animal.lua")
       |> Sandbox.eval_function!("voices", [], 0)
 
-    assert output == "moo"
+    assert output ==  [
+             {"bunny", "silence"},
+             {"cat", "meow"},
+             {"cow", "moo"},
+             {"dog", "woof"}
+           ]
   end
 
   test "can call function at path with single arg wrapped as array" do
@@ -165,7 +170,7 @@ defmodule SandboxTest do
       |> Sandbox.eval_function!("puppy", "dog", 2000)
     end
 
-    assert_raise(RuntimeError, "Lua Sandbox Error: exceeded reduction limit!", long_function)
+    assert_raise(RuntimeError, "Lua Sandbox exceeded reduction limit!", long_function)
   end
 
   test "can play a Lua function that updates the Lua state" do

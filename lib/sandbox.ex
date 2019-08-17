@@ -97,6 +97,7 @@ defmodule Sandbox do
   def eval(state, code, max_reductions \\ @unlimited_reductions) do
     case :luerl_sandbox.run(code, state, max_reductions) do
       {:error, e} -> {:error, e}
+      {[{:tref, _}], _new_state} -> {:error, "Cannot currently eval table returns, see get! and eval_function!"}
       {[result], _new_state} -> {:ok, result}
     end
   end
@@ -118,6 +119,7 @@ defmodule Sandbox do
     case :luerl_sandbox.run(code, state, max_reductions) do
       {:error, {:reductions, _n}} -> raise("Lua Sandbox Error: exceeded reduction limit!")
       {:error, reason} -> raise("Lua Sandbox Error: #{inspect(reason)}")
+      {[{:tref, _}], _new_state} -> raise("Lua Sandbox Error: cannot eval table returns currently, see get! and eval_function!")
       {[result], _new_state} -> result
       {[], _new_state} -> nil
     end
@@ -163,7 +165,9 @@ defmodule Sandbox do
   def eval_function!(state, path, args, max_reductions) when is_binary(path) do
     state
     |> set!("__sandbox_args__", args_to_list(args))
-    |> eval!("return " <> path <> "(unpack(__sandbox_args__))", max_reductions)
+#    |> eval!("return " <> path <> "(unpack(__sandbox_args__))", max_reductions)
+    |> play!("__sandbox_result__ = " <> path <> "(unpack(__sandbox_args__))", max_reductions)
+    |> get!("__sandbox_result__")
   end
 
   @doc """
@@ -261,6 +265,7 @@ defmodule Sandbox do
     case :luerl_sandbox.run(code, state, max_reductions) do
       {:error, {:reductions, _n}} -> raise("Lua Sandbox exceeded reduction limit!")
       {[result], new_state} -> {result, new_state}
+      {[], new_state} -> {nil, new_state}
     end
   end
 
@@ -277,9 +282,10 @@ defmodule Sandbox do
   end
 
   def run_function!(state, path, args, max_reductions) when is_binary(path) do
-    state
+    next_state = state
     |> set!("__sandbox_args__", args_to_list(args))
-    |> run!("return " <> path <> "(unpack(__sandbox_args__))", max_reductions)
+    |> play!("__sandbox_result__ = " <> path <> "(unpack(__sandbox_args__))", max_reductions)
+    {get!(next_state, "__sandbox_result__"), next_state}
   end
 
   @doc """

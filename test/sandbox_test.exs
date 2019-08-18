@@ -170,7 +170,7 @@ defmodule SandboxTest do
       |> Sandbox.eval_function!("puppy", "dog", 2000)
     end
 
-    assert_raise(RuntimeError, "Lua Sandbox exceeded reduction limit!", long_function)
+    assert_raise(RuntimeError, Sandbox.reduction_error(), long_function)
   end
 
   test "can play a Lua function that updates the Lua state" do

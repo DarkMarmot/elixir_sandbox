@@ -27,6 +27,8 @@ defmodule Sandbox do
 
   """
   @unlimited_reductions 0
+  @sandbox_error "Lua Sandbox Error: "
+  @reduction_error @sandbox_error <> "exceeded reduction limit!"
 
   @typedoc """
   Compiled Lua code that can be transferred between Lua states.
@@ -97,8 +99,9 @@ defmodule Sandbox do
   def eval(state, code, max_reductions \\ @unlimited_reductions) do
     case :luerl_sandbox.run(code, state, max_reductions) do
       {:error, e} -> {:error, e}
-      {[{:tref, _}], _new_state} -> {:error, "Cannot currently eval table returns, see get! and eval_function!"}
-      {[result], _new_state} -> {:ok, result}
+      {[{:tref, _} = table | _], new_state} -> {:ok, :luerl.decode(table, new_state)}
+      {[result | _], _new_state} -> {:ok, result}
+      {[], _} -> {:ok, nil}
     end
   end
 
@@ -117,10 +120,10 @@ defmodule Sandbox do
   @spec eval!(lua_state(), lua_code(), non_neg_integer()) :: lua_value()
   def eval!(state, code, max_reductions \\ @unlimited_reductions) do
     case :luerl_sandbox.run(code, state, max_reductions) do
-      {:error, {:reductions, _n}} -> raise("Lua Sandbox Error: exceeded reduction limit!")
-      {:error, reason} -> raise("Lua Sandbox Error: #{inspect(reason)}")
-      {[{:tref, _}], _new_state} -> raise("Lua Sandbox Error: cannot eval table returns currently, see get! and eval_function!")
-      {[result], _new_state} -> result
+      {:error, {:reductions, _n}} -> raise(@reduction_error)
+      {:error, reason} -> raise(@sandbox_error <> "#{inspect(reason)}")
+      {[{:tref, _} = table | _], new_state} -> :luerl.decode(table, new_state)
+      {[result | _], _new_state} -> result
       {[], _new_state} -> nil
     end
   end
@@ -165,9 +168,7 @@ defmodule Sandbox do
   def eval_function!(state, path, args, max_reductions) when is_binary(path) do
     state
     |> set!("__sandbox_args__", args_to_list(args))
-#    |> eval!("return " <> path <> "(unpack(__sandbox_args__))", max_reductions)
-    |> play!("__sandbox_result__ = " <> path <> "(unpack(__sandbox_args__))", max_reductions)
-    |> get!("__sandbox_result__")
+    |> eval!("return " <> path <> "(unpack(__sandbox_args__))", max_reductions)
   end
 
   @doc """
@@ -212,7 +213,7 @@ defmodule Sandbox do
   @spec play!(lua_state(), lua_code(), non_neg_integer()) :: lua_state()
   def play!(state, code, max_reductions \\ @unlimited_reductions) do
     case :luerl_sandbox.run(code, state, max_reductions) do
-      {:error, {:reductions, _n}} -> raise("Lua Sandbox exceeded reduction limit!")
+      {:error, {:reductions, _n}} -> raise(@reduction_error)
       {_result, new_state} -> new_state
     end
   end
@@ -253,7 +254,8 @@ defmodule Sandbox do
     case :luerl_sandbox.run(code, state, max_reductions) do
       {:error, e} -> {:error, e}
       {[], new_state} -> {:ok, {nil, new_state}}
-      {[result], new_state} -> {:ok, {result, new_state}}
+      {[{:tref, _} = table | _], new_state} -> {:ok, {:luerl.decode(table, new_state), new_state}}
+      {[result | _], new_state} -> {:ok, {result, new_state}}
     end
   end
 
@@ -263,7 +265,8 @@ defmodule Sandbox do
   @spec run!(lua_state(), lua_code(), non_neg_integer()) :: {lua_value(), lua_state()}
   def run!(state, code, max_reductions \\ @unlimited_reductions) do
     case :luerl_sandbox.run(code, state, max_reductions) do
-      {:error, {:reductions, _n}} -> raise("Lua Sandbox exceeded reduction limit!")
+      {:error, {:reductions, _n}} -> raise(@reduction_error)
+      {[{:tref, _} = table], new_state} -> {:luerl.decode(table, new_state), new_state}
       {[result], new_state} -> {result, new_state}
       {[], new_state} -> {nil, new_state}
     end
@@ -282,10 +285,9 @@ defmodule Sandbox do
   end
 
   def run_function!(state, path, args, max_reductions) when is_binary(path) do
-    next_state = state
+    state
     |> set!("__sandbox_args__", args_to_list(args))
-    |> play!("__sandbox_result__ = " <> path <> "(unpack(__sandbox_args__))", max_reductions)
-    {get!(next_state, "__sandbox_result__"), next_state}
+    |> run!("return " <> path <> "(unpack(__sandbox_args__))", max_reductions)
   end
 
   @doc """
@@ -312,10 +314,7 @@ defmodule Sandbox do
   """
   @spec get!(lua_state(), lua_path()) :: lua_value()
   def get!(state, path) when is_list(path) do
-#    code = "return " <> Enum.join(path, ".")
-#    {[result | _], _}
     {result, _s} = :luerl.get_table(path, state)
-#    eval!(state, code)
     result
   end
 
@@ -363,6 +362,9 @@ defmodule Sandbox do
     value = lua_wrap_elixir_run(fun)
     set!(state, name, value)
   end
+
+  @doc false
+  def reduction_error(), do: @reduction_error
 
   # --- private functions ---
 

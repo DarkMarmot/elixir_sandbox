@@ -27,6 +27,7 @@ defmodule Sandbox do
 
   """
   @unlimited_reductions 0
+  @timeout 100
   @sandbox_error "Lua Sandbox Error: "
   @reduction_error @sandbox_error <> "exceeded reduction limit!"
 
@@ -95,9 +96,9 @@ defmodule Sandbox do
       {:ok, 9.0}
 
   """
-  @spec eval(lua_state(), lua_code(), non_neg_integer()) :: {:ok, lua_value()} | {:error, any()}
-  def eval(state, code, max_reductions \\ @unlimited_reductions) do
-    case :luerl_sandbox.run(code, state, max_reductions) do
+  @spec eval(lua_state(), lua_code(), non_neg_integer(), non_neg_integer()) :: {:ok, lua_value()} | {:error, any()}
+  def eval(state, code, max_reductions \\ @unlimited_reductions, timeout \\ @timeout) do
+    case :luerl_sandbox.run(code, state, max_reductions, [], timeout) do
       {:error, e} -> {:error, e}
       {[{:tref, _} = table | _], new_state} -> {:ok, :luerl.decode(table, new_state)}
       {[result | _], _new_state} -> {:ok, result}
@@ -117,9 +118,9 @@ defmodule Sandbox do
       9.0
 
   """
-  @spec eval!(lua_state(), lua_code(), non_neg_integer()) :: lua_value()
-  def eval!(state, code, max_reductions \\ @unlimited_reductions) do
-    case :luerl_sandbox.run(code, state, max_reductions) do
+  @spec eval!(lua_state(), lua_code(), non_neg_integer(), non_neg_integer()) :: lua_value()
+  def eval!(state, code, max_reductions \\ @unlimited_reductions, timeout \\ @timeout) do
+    case :luerl_sandbox.run(code, state, max_reductions, [], timeout) do
       {:error, {:reductions, _n}} -> raise(@reduction_error)
       {:error, reason} -> raise(@sandbox_error <> "#{inspect(reason)}")
       {[{:tref, _} = table | _], new_state} -> :luerl.decode(table, new_state)

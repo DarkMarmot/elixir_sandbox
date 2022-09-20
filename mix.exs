@@ -56,7 +56,7 @@ defmodule Sandbox.MixProject do
   # Run "mix help deps" to learn about dependencies.
   defp deps do
     [
-      {:luerl, "~> 1.0.0"},
+      {:luerl, "~> 0.4.0"},
       {:ex_doc, "~> 0.28.2", only: :dev, runtime: false},
       {:dialyxir, "~> 1.0.0", only: [:dev], runtime: false}
     ]

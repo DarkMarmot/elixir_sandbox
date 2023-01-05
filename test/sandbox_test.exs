@@ -93,6 +93,15 @@ defmodule SandboxTest do
     assert output == "silence"
   end
 
+  test "can call function at path with specific timeout" do
+    output =
+      Sandbox.init()
+      |> Sandbox.play_file!("test/lua/animal.lua")
+      |> Sandbox.eval_function!(["speak"], ["bunny"], 0, 200)
+
+    assert output == "silence"
+  end
+
   test "can call function at path as string" do
     output =
       Sandbox.init()

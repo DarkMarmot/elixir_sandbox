@@ -27,6 +27,7 @@ defmodule Sandbox do
 
   """
   @unlimited_reductions 0
+  @timeout 100
   @sandbox_error "Lua Sandbox Error: "
   @reduction_error @sandbox_error <> "exceeded reduction limit!"
 
@@ -95,9 +96,9 @@ defmodule Sandbox do
       {:ok, 9.0}
 
   """
-  @spec eval(lua_state(), lua_code(), non_neg_integer()) :: {:ok, lua_value()} | {:error, any()}
-  def eval(state, code, max_reductions \\ @unlimited_reductions) do
-    case :luerl_sandbox.run(code, state, max_reductions) do
+  @spec eval(lua_state(), lua_code(), non_neg_integer(), non_neg_integer()) :: {:ok, lua_value()} | {:error, any()}
+  def eval(state, code, max_reductions \\ @unlimited_reductions, timeout \\ @timeout) do
+    case :luerl_sandbox.run(code, state, max_reductions, [], timeout) do
       {:error, e} -> {:error, e}
       {[{:tref, _} = table | _], new_state} -> {:ok, :luerl.decode(table, new_state)}
       {[result | _], _new_state} -> {:ok, result}
@@ -106,7 +107,7 @@ defmodule Sandbox do
   end
 
   @doc ~S"""
-  Same as `eval/3`, but will return the raw result or raise a `RuntimeError`.
+  Same as `eval/4`, but will return the raw result or raise a `RuntimeError`.
 
   ## Examples
 
@@ -117,9 +118,9 @@ defmodule Sandbox do
       9.0
 
   """
-  @spec eval!(lua_state(), lua_code(), non_neg_integer()) :: lua_value()
-  def eval!(state, code, max_reductions \\ @unlimited_reductions) do
-    case :luerl_sandbox.run(code, state, max_reductions) do
+  @spec eval!(lua_state(), lua_code(), non_neg_integer(), non_neg_integer()) :: lua_value()
+  def eval!(state, code, max_reductions \\ @unlimited_reductions, timeout \\ @timeout ) do
+    case :luerl_sandbox.run(code, state, max_reductions, [], timeout) do
       {:error, {:reductions, _n}} -> raise(@reduction_error)
       {:error, reason} -> raise(@sandbox_error <> "#{inspect(reason)}")
       {[{:tref, _} = table | _], new_state} -> :luerl.decode(table, new_state)
@@ -132,11 +133,11 @@ defmodule Sandbox do
   Evaluates a Lua file against the given Lua state and returns the result in an ok-error tuple. The state itself is not modified.
   """
 
-  @spec eval_file(lua_state(), String.t(), non_neg_integer()) ::
+  @spec eval_file(lua_state(), String.t(), non_neg_integer(), non_neg_integer()) ::
           {:ok, lua_value()} | {:error, any()}
-  def eval_file(state, file_path, max_reductions \\ @unlimited_reductions) do
+  def eval_file(state, file_path, max_reductions \\ @unlimited_reductions, timeout \\ @timeout) do
     with {:ok, code} <- File.read(file_path),
-         {:ok, result} <- eval(state, code, max_reductions) do
+         {:ok, result} <- eval(state, code, max_reductions, timeout) do
       {:ok, result}
     else
       {:error, reason} -> {:error, reason}
@@ -144,13 +145,13 @@ defmodule Sandbox do
   end
 
   @doc """
-  Same as `eval_file/3`, but will return the raw result or raise a `RuntimeError`.
+  Same as `eval_file/4`, but will return the raw result or raise a `RuntimeError`.
   """
 
-  @spec eval_file!(lua_state(), String.t(), non_neg_integer()) :: lua_value()
-  def eval_file!(state, file_path, max_reductions \\ @unlimited_reductions) do
+  @spec eval_file!(lua_state(), String.t(), non_neg_integer(), non_neg_integer()) :: lua_value()
+  def eval_file!(state, file_path, max_reductions \\ @unlimited_reductions, timeout \\ @timeout) do
     code = File.read!(file_path)
-    eval!(state, code, max_reductions)
+    eval!(state, code, max_reductions, timeout)
   end
 
   @doc """
@@ -158,17 +159,17 @@ defmodule Sandbox do
   Lua functions in the Lua state can be referenced by their `lua_path`, being a string or list such as `math.floor` or `["math", "floor"]`.
   """
 
-  @spec eval_function!(lua_state(), lua_path(), non_neg_integer()) :: lua_value()
-  def eval_function!(state, path, args \\ [], max_reductions \\ @unlimited_reductions)
+  @spec eval_function!(lua_state(), lua_path(), non_neg_integer(), non_neg_integer()) :: lua_value()
+  def eval_function!(state, path, args \\ [], max_reductions \\ @unlimited_reductions, timeout \\ @timeout)
 
-  def eval_function!(state, path, args, max_reductions) when is_list(path) do
-    eval_function!(state, Enum.join(path, "."), args_to_list(args), max_reductions)
+  def eval_function!(state, path, args, max_reductions, timeout) when is_list(path) do
+    eval_function!(state, Enum.join(path, "."), args_to_list(args), max_reductions, timeout)
   end
 
-  def eval_function!(state, path, args, max_reductions) when is_binary(path) do
+  def eval_function!(state, path, args, max_reductions, timeout) when is_binary(path) do
     state
     |> set!("__sandbox_args__", args_to_list(args))
-    |> eval!("return " <> path <> "(unpack(__sandbox_args__))", max_reductions)
+    |> eval!("return " <> path <> "(unpack(__sandbox_args__))", max_reductions, timeout)
   end
 
   @doc """
@@ -199,20 +200,20 @@ defmodule Sandbox do
   @doc """
   Runs a Lua string or chunk against a Lua state and returns a new Lua state in an ok-error tuple.
   """
-  @spec play(lua_state(), lua_code(), non_neg_integer()) :: {:ok, lua_state()} | {:error, any()}
-  def play(state, code, max_reductions \\ @unlimited_reductions) do
-    case :luerl_sandbox.run(code, state, max_reductions) do
+  @spec play(lua_state(), lua_code(), non_neg_integer(), non_neg_integer()) :: {:ok, lua_state()} | {:error, any()}
+  def play(state, code, max_reductions \\ @unlimited_reductions, timeout \\ @timeout) do
+    case :luerl_sandbox.run(code, state, max_reductions, [], timeout) do
       {:error, e} -> {:error, e}
       {_result, new_state} -> {:ok, new_state}
     end
   end
 
   @doc """
-  Same as `play/3`, but will return the raw result or raise a `RuntimeError`.
+  Same as `play/4`, but will return the raw result or raise a `RuntimeError`.
   """
-  @spec play!(lua_state(), lua_code(), non_neg_integer()) :: lua_state()
-  def play!(state, code, max_reductions \\ @unlimited_reductions) do
-    case :luerl_sandbox.run(code, state, max_reductions) do
+  @spec play!(lua_state(), lua_code(), non_neg_integer(), non_neg_integer()) :: lua_state()
+  def play!(state, code, max_reductions \\ @unlimited_reductions, timeout \\ @timeout) do
+    case :luerl_sandbox.run(code, state, max_reductions, [], timeout) do
       {:error, {:reductions, _n}} -> raise(@reduction_error)
       {_result, new_state} -> new_state
     end
@@ -221,37 +222,36 @@ defmodule Sandbox do
   @doc """
   Runs a Lua file in the context of a Lua state and returns a new Lua state.
   """
-  @spec play_file!(lua_state(), String.t(), non_neg_integer()) :: lua_state()
-  def play_file!(state, file_path, max_reductions \\ @unlimited_reductions)
+  @spec play_file!(lua_state(), String.t(), non_neg_integer(), non_neg_integer()) :: lua_state()
+  def play_file!(state, file_path, max_reductions \\ @unlimited_reductions, timeout \\ @timeout)
       when is_binary(file_path) and is_integer(max_reductions) do
     code = File.read!(file_path)
-    play!(state, code, max_reductions)
+    play!(state, code, max_reductions, timeout)
   end
 
   @doc """
   Runs a Lua function defined in the given Lua state and returns a new Lua state.
   """
-  @spec play_function!(lua_state(), lua_path(), non_neg_integer()) :: lua_state()
-  def play_function!(state, path, args \\ [], max_reductions \\ @unlimited_reductions)
+  @spec play_function!(lua_state(), lua_path(), non_neg_integer(), non_neg_integer()) :: lua_state()
+  def play_function!(state, path, args \\ [], max_reductions \\ @unlimited_reductions, timeout \\ @timeout)
 
-  def play_function!(state, path, args, max_reductions) when is_list(path) do
-    play_function!(state, Enum.join(path, "."), args_to_list(args), max_reductions)
+  def play_function!(state, path, args, max_reductions, timeout) when is_list(path) do
+    play_function!(state, Enum.join(path, "."), args_to_list(args), max_reductions, timeout)
   end
 
-  def play_function!(state, path, args, max_reductions) when is_binary(path) do
+  def play_function!(state, path, args, max_reductions, timeout) when is_binary(path) do
     state
     |> set!("__sandbox_args__", args_to_list(args))
-    |> play!("return " <> path <> "(unpack(__sandbox_args__))", max_reductions)
+    |> play!("return " <> path <> "(unpack(__sandbox_args__))", max_reductions, timeout)
   end
 
   @doc """
   Runs a Lua string or chunk against the given Lua state and returns the result and the new Lua state in an ok-error tuple.
   """
-
-  @spec run(lua_state(), lua_code(), non_neg_integer()) ::
+  @spec run(lua_state(), lua_code(), non_neg_integer(), non_neg_integer()) ::
           {:ok, lua_state() | {lua_value(), lua_state()}} | {:error, any()}
-  def run(state, code, max_reductions \\ @unlimited_reductions) do
-    case :luerl_sandbox.run(code, state, max_reductions) do
+  def run(state, code, max_reductions \\ @unlimited_reductions, timeout \\ @timeout) do
+    case :luerl_sandbox.run(code, state, max_reductions, [], timeout) do
       {:error, e} -> {:error, e}
       {[], new_state} -> {:ok, {nil, new_state}}
       {[{:tref, _} = table | _], new_state} -> {:ok, {:luerl.decode(table, new_state), new_state}}
@@ -260,11 +260,11 @@ defmodule Sandbox do
   end
 
   @doc """
-  Same as `run/3`, but will return the raw `{result, state}` or raise a `RuntimeError`.
+  Same as `run/4`, but will return the raw `{result, state}` or raise a `RuntimeError`.
   """
-  @spec run!(lua_state(), lua_code(), non_neg_integer()) :: {lua_value(), lua_state()}
-  def run!(state, code, max_reductions \\ @unlimited_reductions) do
-    case :luerl_sandbox.run(code, state, max_reductions) do
+  @spec run!(lua_state(), lua_code(), non_neg_integer(), non_neg_integer()) :: {lua_value(), lua_state()}
+  def run!(state, code, max_reductions \\ @unlimited_reductions, timeout \\ @timeout) do
+    case :luerl_sandbox.run(code, state, max_reductions, [], timeout) do
       {:error, {:reductions, _n}} -> raise(@reduction_error)
       {[{:tref, _} = table], new_state} -> {:luerl.decode(table, new_state), new_state}
       {[result], new_state} -> {result, new_state}
@@ -277,17 +277,17 @@ defmodule Sandbox do
   Lua functions in the Lua state can be referenced by their `lua_path`, a string or list such as `math.floor` or `["math", "floor"]`.
   """
 
-  @spec run_function!(lua_state(), lua_path(), non_neg_integer()) :: {lua_value(), lua_state()}
-  def run_function!(state, path, args \\ [], max_reductions \\ @unlimited_reductions)
+  @spec run_function!(lua_state(), lua_path(), non_neg_integer(), non_neg_integer()) :: {lua_value(), lua_state()}
+  def run_function!(state, path, args \\ [], max_reductions \\ @unlimited_reductions, timeout \\ @timeout)
 
-  def run_function!(state, path, args, max_reductions) when is_list(path) do
-    run_function!(state, Enum.join(path, "."), args_to_list(args), max_reductions)
+  def run_function!(state, path, args, max_reductions, timeout) when is_list(path) do
+    run_function!(state, Enum.join(path, "."), args_to_list(args), max_reductions, timeout)
   end
 
-  def run_function!(state, path, args, max_reductions) when is_binary(path) do
+  def run_function!(state, path, args, max_reductions, timeout) when is_binary(path) do
     state
     |> set!("__sandbox_args__", args_to_list(args))
-    |> run!("return " <> path <> "(unpack(__sandbox_args__))", max_reductions)
+    |> run!("return " <> path <> "(unpack(__sandbox_args__))", max_reductions, timeout)
   end
 
   @doc """
